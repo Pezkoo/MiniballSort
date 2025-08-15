@@ -1,4 +1,5 @@
 #include "Reaction.hh"
+#include "MiniballEvts.hh" // To include GetDeltaEnergy()
 
 ClassImp( MiniballParticle )
 ClassImp( MiniballReaction )
@@ -1027,13 +1028,103 @@ void MiniballReaction::CalculateRecoil(){
 
 }
 
+/* MiniballSort equivalent of NPTOOL code
+
+void EnergyLoss::Slow (std::shared_ptr<ParticleEvt> p, bool kinflag){
+	
+	En = p->GetEnergy();
+	eff_thick = Material_thickness / TMath::Abs( TMath::Cos( GetParticleTheta(p) ) );
+	
+	eloss = GetEnergyLoss( En, -1.0 * eff_thick, gStopping[4] );
+	En -= eloss;		(NPTOOL: Energy -= de/fNumberMass)
+} 
+*/
+
+// Vilis' attept on particle energy before CD detector from energy loss
+//double MiniballReaction::InitialEnergyFromDeltaE(){
+
+//}
+
+
+
+
+double MiniballReaction::EvaluateEnergyFromDeltaE(std::shared_ptr<ParticleEvt> p){
+
+	double EnergyMin = 0.0;
+	double EnergyMax = 10000;
+	double EnergyResolution = 1.0;
+	int MaxStep = 1000000;
+
+	double step_size = 1000000.0;
+	double En = EnergyMax;
+	double eloss = 0.0;
+	bool check_low = false;
+	bool check_high = false;
+	double eff_thick = dead_layer[p->GetDetector()] / TMath::Abs( TMath::Cos( GetParticleTheta(p) ) );
+
+	for( int i = 0; i < MaxStep; i++) {
+		if(En > 0){
+			eloss = GetEnergyLoss( En, -1.0 * eff_thick, gStopping[4] );
+			std::cout << "eloss: " << eloss << std::endl;
+			std::cout << "GetEnergy: " << p->GetEnergy() << std::endl;
+		}
+		else
+			return 0;
+		if(TMath::Abs(p->GetEnergy() - eloss) < EnergyResolution) return En;
+		else if (p->GetEnergy() - eloss > 0){
+			if(En - step_size > EnergyMin){
+				En -= step_size;
+				check_low = true;
+			}
+			else {
+				step_size = step_size/10.;
+				En -= step_size;
+			}
+		}
+
+		else if (p->GetEnergy() - eloss < 0){
+			if(En + step_size < EnergyMax){
+				En += step_size;
+				check_high = true;
+			}
+			else {
+				step_size = step_size/10.;
+				En += step_size;
+			}
+		}
+		if(check_high && check_low){
+			step_size = step_size/10.;
+			check_high = false;
+			check_low = false;
+		}
+		
+		if(step_size < EnergyResolution) return En;
+	}
+	return En;
+}
+
+
+
+
 void MiniballReaction::TransferProduct( std::shared_ptr<ParticleEvt> p, bool kinflag ){
 
 	/// Set the ejectile particle and calculate the centre of mass angle too
 	/// @param kinflag kinematics flag such that true is the backwards solution (i.e. CoM > 90 deg)
 
+	// Vili's versio for recoil energy before CD detector (dE)
+	double dE_loss = p->GetDeltaEnergy();
+	std::cout << "Energy loss in dE: " << dE_loss << std::endl;
+	std::cout << "Alpha angle: " << GetParticleTheta(p) << std::endl;
+	double E_in = EvaluateEnergyFromDeltaE(p);
+	std::cout << std::setprecision(8) << "Energy before CD: " << E_in << std::endl;
+	double check_eloss = GetEnergyLoss(E_in, dead_layer[p->GetDetector()] / TMath::Abs( TMath::Cos( GetParticleTheta(p) ) ), gStopping[4]);
+	double slow = Slow(E_in, dead_layer[p->GetDetector()], GetParticleTheta(p), gStopping[4]);
+	std::cout << std::setprecision(4) <<  "Sanity check of energy loss when the initial energy is E_in: " << check_eloss << std::endl;
+	std::cout << std::setprecision(4) <<  "slow: " << slow << std::endl;
+	std::cout << "===================================================================" << std::endl;
+
 	//this assumes the reaction product is emitted at the centre of the target
-	double En = p->GetEnergy(); //get energy of the reaction product
+	double En = p->GetEnergy(); // Get kinetic energy of the measured particle
 	double eloss = 0.0;
 	double after_target_recoil_energy = p->GetEnergy();
 	double after_degrader_recoil_energy = p->GetEnergy();
@@ -1041,7 +1132,7 @@ void MiniballReaction::TransferProduct( std::shared_ptr<ParticleEvt> p, bool kin
 	// Correcting energy loss in CD dead layer
 	if( stopping && ( doppler_mode == 3 || doppler_mode == 5 ) ) {
 		double eff_thick = dead_layer[p->GetDetector()] / TMath::Abs( TMath::Cos( GetParticleTheta(p) ) );
-		eloss = GetEnergyLoss( En, -1.0 * eff_thick, gStopping[4] ); // recoil in dead layer
+		eloss = GetEnergyLoss( En, -1.0 * eff_thick, gStopping[4]); // recoil in dead layer
 		En -= eloss;
 		after_target_recoil_energy = En;
 		after_degrader_recoil_energy = En;
@@ -1073,11 +1164,10 @@ void MiniballReaction::TransferProduct( std::shared_ptr<ParticleEvt> p, bool kin
 	double p3x = Beam.GetMomentum() - p4x;
 	double p3y = p4y;
 	double theta3 = TMath::ATan2(p3y, p3x);
-	//double E3 = GetEnergyTotLab() - Recoil.GetEnergyTot();
 	double E3 = Beam.GetEnergyTot() + Target.GetEnergyTot() - Recoil.GetEnergyTot(); // Total energy of ejectile
 
 	// Kinetic energy at the reaction position in the centre of the target
-	double beam_kinetic_energy = E3 - Ejectile.GetMass();
+	double Ejectile_kinetic_energy = E3 - Ejectile.GetMass();
 
 	// Calculate the centre-of-mass energy and angle
 	// Vili's version
@@ -1103,22 +1193,22 @@ void MiniballReaction::TransferProduct( std::shared_ptr<ParticleEvt> p, bool kin
 	if( stopping && doppler_mode > 0 ) {
 
 		double eff_thick = 0.5 * target_thickness / TMath::Abs( TMath::Cos(theta3) );
-		eloss = GetEnergyLoss( beam_kinetic_energy, eff_thick, gStopping[1] );
-		beam_kinetic_energy -= eloss;
+		eloss = GetEnergyLoss( Ejectile_kinetic_energy, eff_thick, gStopping[1] );
+		Ejectile_kinetic_energy -= eloss;
 
 		// Do energy loss through the full degrader if requested
 		if( doppler_mode >= 2 && doppler_mode <= 4 && degrader_thickness > 0 ) {
 
 			eff_thick = degrader_thickness / TMath::Abs( TMath::Cos(theta3) );
-			eloss = GetEnergyLoss( beam_kinetic_energy, eff_thick, gStopping[5] );
-			beam_kinetic_energy -= eloss;
+			eloss = GetEnergyLoss( Ejectile_kinetic_energy, eff_thick, gStopping[5] );
+			Ejectile_kinetic_energy -= eloss;
 
 		}
 
 	}
 
 	// Set the ejectile energy
-	Ejectile.SetEnergy( beam_kinetic_energy );  // Kinetic energy of ejectile
+	Ejectile.SetEnergy( Ejectile_kinetic_energy );  // Kinetic energy of ejectile
 	Ejectile.SetTheta( theta3 ); // Calculates ejectile theta angle from recoil information
 	Ejectile.SetPhi( TMath::Pi() + Recoil.GetPhi() );
 
@@ -1137,6 +1227,28 @@ void MiniballReaction::TransferProduct( std::shared_ptr<ParticleEvt> p, bool kin
 
 }
 
+double MiniballReaction::Slow(   double Energy          , // Energy of the detected particle
+    double TargetThickness , // Target Thickness at 0 degree
+    double Angle, std::unique_ptr<TGraph> &g ) // Particle Angle
+  const
+{
+  //   Lise file are given in MeV/u
+  //   For SRIM and geant4 file fNumberOfMass = 1 whatever is the nucleus, file are given in MeV
+  double fNumberOfSlice = 50;
+  double En = Energy;
+  TargetThickness = TargetThickness / ( cos(Angle) );
+  double SliceThickness = TargetThickness / fNumberOfSlice;
+  for (int i = 0; i < fNumberOfSlice ; i++) 
+  {
+    double de = g->Eval(En) * SliceThickness;
+    En -= de;
+
+    if(En<0) {En=0;break;}
+  }
+
+  return En   ;
+
+}
 
 
 double MiniballReaction::GetEnergyLoss( double Ei, double dist, std::unique_ptr<TGraph> &g ) {

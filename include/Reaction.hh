@@ -327,7 +327,9 @@ public:
 	// Identify the light ion recoil in transfer
 	void	TransferProduct( std::shared_ptr<ParticleEvt> p, bool kinflag = false );
 
+	inline double EvaluateEnergyFromDeltaE(std::shared_ptr<ParticleEvt> p);
 
+	inline double Slow(double Energy, double TargetThickness, double Angle, std::unique_ptr<TGraph> &g ) const;
 
 	// Reaction calculations
 	inline double GetQvalue(){
