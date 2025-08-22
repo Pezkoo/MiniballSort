@@ -1052,26 +1052,27 @@ double MiniballReaction::EvaluateEnergyFromDeltaE(std::shared_ptr<ParticleEvt> p
 
 	double EnergyMin = 0.0;
 	double EnergyMax = 10000;
-	double EnergyResolution = 1.0;
-	int MaxStep = 1000000;
+	double EnergyResolution = 100.0;
+	int MaxStep = 10;
 
-	double step_size = 1000000.0;
+	double step_size = 1000.0;
 	double En = EnergyMax;
 	double eloss = 0.0;
 	bool check_low = false;
 	bool check_high = false;
-	double eff_thick = dead_layer[p->GetDetector()] / TMath::Abs( TMath::Cos( GetParticleTheta(p) ) );
+	double CD_thickness = 0.140; // [mm]
+	double eff_thick = CD_thickness / TMath::Abs( TMath::Cos( GetParticleTheta(p) ) );
 
 	for( int i = 0; i < MaxStep; i++) {
 		if(En > 0){
 			eloss = GetEnergyLoss( En, -1.0 * eff_thick, gStopping[4] );
 			std::cout << "eloss: " << eloss << std::endl;
-			std::cout << "GetEnergy: " << p->GetEnergy() << std::endl;
+			std::cout << "GetDeltaEnergy: " << p->GetDeltaEnergy() << std::endl;
 		}
 		else
 			return 0;
-		if(TMath::Abs(p->GetEnergy() - eloss) < EnergyResolution) return En;
-		else if (p->GetEnergy() - eloss > 0){
+		if(TMath::Abs(p->GetDeltaEnergy() - eloss) < EnergyResolution) return En;
+		else if (p->GetDeltaEnergy() - eloss > 0){
 			if(En - step_size > EnergyMin){
 				En -= step_size;
 				check_low = true;
@@ -1082,7 +1083,7 @@ double MiniballReaction::EvaluateEnergyFromDeltaE(std::shared_ptr<ParticleEvt> p
 			}
 		}
 
-		else if (p->GetEnergy() - eloss < 0){
+		else if (p->GetDeltaEnergy() - eloss < 0){
 			if(En + step_size < EnergyMax){
 				En += step_size;
 				check_high = true;
@@ -1116,9 +1117,9 @@ void MiniballReaction::TransferProduct( std::shared_ptr<ParticleEvt> p, bool kin
 	std::cout << "Energy loss in dE: " << dE_loss << std::endl;
 	std::cout << "Alpha angle: " << GetParticleTheta(p) << std::endl;
 	double E_in = EvaluateEnergyFromDeltaE(p);
-	std::cout << std::setprecision(8) << "Energy before CD: " << E_in << std::endl;
-	double check_eloss = GetEnergyLoss(E_in, dead_layer[p->GetDetector()] / TMath::Abs( TMath::Cos( GetParticleTheta(p) ) ), gStopping[4]);
-	double slow = Slow(E_in, dead_layer[p->GetDetector()], GetParticleTheta(p), gStopping[4]);
+	std::cout << std::setprecision(8) << "Energy before CD, E_in: " << E_in << std::endl;
+	double check_eloss = GetEnergyLoss(E_in, 0.140 / TMath::Abs( TMath::Cos( GetParticleTheta(p) ) ), gStopping[4]);
+	double slow = Slow(p->GetDeltaEnergy(), 0.140, GetParticleTheta(p), gStopping[4]);
 	std::cout << std::setprecision(4) <<  "Sanity check of energy loss when the initial energy is E_in: " << check_eloss << std::endl;
 	std::cout << std::setprecision(4) <<  "slow: " << slow << std::endl;
 	std::cout << "===================================================================" << std::endl;
